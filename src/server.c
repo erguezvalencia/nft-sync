@@ -22,24 +22,31 @@
 #include "proto.h"
 #include "config.h"
 #include "proto.h"
+#include "mnl.h"
+#include "utils.h"
 
 static int send_ruleset(struct nft_fd *nfd)
 {
 	struct msg_buff *msgb;
 	struct nft_sync_hdr *hdr;
-	/* TODO: send real ruleset in json/xml format here, replace this
-	 *	 code with the real libnftnl code.
-	 */
-	const char *ruleset = "this is the ruleset in XML/JSON format";
-	int ret, ruleset_len = strlen(ruleset);
+	int ret, ruleset_len;
+	const char *ruleset = netlink_dump_ruleset(nfts_inst.nl_query_sock);
+
+	if (ruleset == NULL)
+		return 0;
+
+	ruleset_len = strlen(ruleset);
 
 	msgb = msgb_alloc(sizeof(struct nft_sync_hdr) + ruleset_len);
-	if (msgb == NULL)
+	if (msgb == NULL) {
+		xfree(ruleset);
 		return -1;
+	}
 
 	hdr = msgb_put(msgb, sizeof(struct nft_sync_hdr) + ruleset_len);
 	hdr->len = htonl(sizeof(struct nft_sync_hdr) + ruleset_len);
 	memcpy(hdr->data, ruleset, ruleset_len);
+	xfree(ruleset);
 
 	ret = send(nfd->fd, msgb_data(msgb), msgb_len(msgb), 0);
 	msgb_free(msgb);

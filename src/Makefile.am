@@ -10,11 +10,13 @@ CLEANFILES = config-parser.c		\
 nft_sync_SOURCES = event.c		\
 		   logging.c		\
 		   msg_buff.c		\
+		   mnl.c		\
 		   server.c		\
 		   client.c		\
 		   tcp.c		\
 		   timer.c		\
 		   main.c		\
+		   utils.c		\
 		   fd.c			\
 		   config-parser.y	\
 		   config-scanner.l

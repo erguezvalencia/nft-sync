@@ -24,6 +24,7 @@
 #include "logging.h"
 #include "msg_buff.h"
 #include "proto.h"
+#include "mnl.h"
 
 struct nft_sync_inst nfts_inst;
 
@@ -99,6 +100,14 @@ int main(int argc, char *argv[])
 				 strerror(errno));
 			goto err;
 		}
+
+		if (nfts_socket_open(&nfts_inst) < 0) {
+			nfts_log(NFTS_LOG_FATAL,
+				 "Cannot open Netlink query socket: %s\n",
+				 strerror(errno));
+			goto err;
+		}
+
 		nfts_log(NFTS_LOG_INFO, "listening at %s",
 			 inet_ntoa(nfts_inst.tcp.server.ipv4.inet_addr));
 	}
@@ -125,6 +134,9 @@ int main(int argc, char *argv[])
 	nft_sync_event_loop();
 
 	nft_sync_event_fini();
+
+	if (nfts_inst.mode & NFTS_MODE_SERVER)
+		nfts_socket_close(&nfts_inst);
 
 	ret = EXIT_SUCCESS;
 err:

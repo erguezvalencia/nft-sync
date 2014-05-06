@@ -7,6 +7,8 @@
 #include "fd.h"
 #include "proto.h"
 
+#include <libmnl/libmnl.h>
+
 enum nft_sync_mode {
 	NFTS_MODE_SERVER	= (1 << 0),
 	NFTS_MODE_CLIENT	= (1 << 1),
@@ -31,6 +33,7 @@ struct nft_sync_inst {
 	struct tcp_conf		tcp;
 	struct nft_fd		tcp_client_nfd;
 	struct nft_fd		tcp_server_fd;
+	struct mnl_socket	*nl_query_sock;
 };
 
 extern struct nft_sync_inst nfts_inst;

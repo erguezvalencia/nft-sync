@@ -341,7 +341,6 @@ struct nft_ruleset *mnl_ruleset_dump(struct mnl_socket *nf_sock)
 			}
 
 			nft_set_list_merge(complete_set_list, s);
-			nft_set_list_free(s);
 		}
 		o = nft_table_list_iter_next(it);
 	}

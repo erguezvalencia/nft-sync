@@ -9,6 +9,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <event.h>
+#include <signal.h>
 
 #include "init.h"
 #include "logging.h"

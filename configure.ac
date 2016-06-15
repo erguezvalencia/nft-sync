@@ -16,6 +16,7 @@ AC_PROG_INSTALL
 AC_PROG_LN_S
 AM_PROG_LEX
 AC_PROG_YACC
+AM_PROG_CC_C_O
 
 case "$host" in
 *-*-linux*) ;;
@@ -57,6 +58,9 @@ AC_CHECK_HEADER([ev.h],
 		AC_CHECK_LIB([ev], [ev_loop_new], [BUILD_LIBEV=$WITH_LIBEV],
 		[test x$WITH_LIBEV != xauto && AC_MSG_ERROR("libev not found")]),
 		[test x$WITH_LIBEV != xauto && AC_MSG_ERROR("ev.h not found")])
+AC_CHECK_HEADER([event.h],
+		[BUILD_LIBEV=$WITH_LIBEVENT],
+		[test x$WITH_LIBEVENT != xauto && AC_MSG_ERROR("libev-libevent-dev not found")])
 
 AC_CHECK_HEADERS(arpa/inet.h)
 dnl check for inet_pton

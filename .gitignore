@@ -17,3 +17,7 @@ src/nft-sync
 src/config-*.c
 src/config-*.h
 tests/nft-sync-test
+/m4/
+.autotools
+.cproject
+.project

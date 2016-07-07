@@ -1,5 +1,7 @@
 SUBDIRS = linux
 noinst_HEADERS =	config.h	\
+			ruleset_parser.h\
+			mxml.h		\
 			fd.h		\
 			init.h		\
 			logging.h	\

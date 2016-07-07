@@ -21,6 +21,12 @@
 #include "msg_buff.h"
 #include "proto.h"
 #include "config.h"
+#include "mnl.h"
+#include "ruleset_parser.h"
+#include "mxml.h"
+
+struct mnl_nlmsg_batch *batch;
+uint32_t seq;
 
 static void print_payload(struct msg_buff *msgb)
 {
@@ -28,6 +34,96 @@ static void print_payload(struct msg_buff *msgb)
 	      msgb_len(msgb) - sizeof(struct nft_sync_hdr));
 	write(1, "\n", 1);
 }
+
+
+static void parse_payload(struct msg_buff *msgb)
+{
+	int ret = -1, batching;
+	char *data;
+	struct nftnl_parse_err *err;
+	char buf[MNL_SOCKET_BUFFER_SIZE];
+	struct mnl_socket *nl;
+	mxml_node_t *tree, *node, *add;
+
+	nfts_log(NFTS_LOG_INFO, "Applying ruleset");
+	data = malloc(msgb_len(msgb)+sizeof(struct nft_sync_hdr));
+	if (data == NULL){
+		nfts_log(NFTS_LOG_ERROR, "OOM");
+	}
+	memcpy(data,(char *)(msgb_data(msgb) + sizeof(struct nft_sync_hdr)),msgb_len(msgb)+sizeof(struct nft_sync_hdr));
+
+	tree = mxmlLoadString(MXML_NO_PARENT, data, MXML_OPAQUE_CALLBACK);
+	if (tree == NULL) {
+		exit(EXIT_FAILURE);
+	}
+	node = mxmlFindElement(tree,tree,NULL,NULL,NULL, MXML_DESCEND_FIRST);
+	if (node == NULL) {
+		exit(EXIT_FAILURE);
+	}
+	add = mxmlNewElement(MXML_NO_PARENT, "add");
+	if (add == NULL) {
+		exit(EXIT_FAILURE);
+	}
+	mxmlAdd(tree,MXML_ADD_BEFORE,tree,add);
+	mxmlAdd(add,MXML_ADD_BEFORE,tree,node);
+
+	data=mxmlSaveAllocString(tree,MXML_NO_CALLBACK);
+	if (data == NULL) {
+		exit(EXIT_FAILURE);
+	}
+	mxmlDelete(tree);
+	err = nftnl_parse_err_alloc();
+	if (err == NULL) {
+		exit(EXIT_FAILURE);
+	}
+
+	batching = nftnl_batch_is_supported();
+	if (batching < 0) {
+		exit(EXIT_FAILURE);
+	}
+
+	seq = time(NULL);
+	batch = mnl_nlmsg_batch_start(buf, sizeof(buf));
+
+	if (batching) {
+		nftnl_batch_begin(mnl_nlmsg_batch_current(batch), seq++);
+		mnl_nlmsg_batch_next(batch);
+	}
+
+
+	ret = nftnl_ruleset_parse_buffer_cb(NFTNL_PARSE_XML, data, err, NULL,
+						&ruleset_elems_cb);
+
+
+
+	if (ret < 0) {
+		nftnl_parse_perror("fail", err);
+		exit(EXIT_FAILURE);
+	}
+
+	if (batching) {
+		nftnl_batch_end(mnl_nlmsg_batch_current(batch), seq++);
+		mnl_nlmsg_batch_next(batch);
+	}
+
+	nl = mnl_socket_open(NETLINK_NETFILTER);
+	if (nl == NULL) {
+		exit(EXIT_FAILURE);
+	}
+
+	if (mnl_socket_bind(nl, 0, MNL_SOCKET_AUTOPID) < 0) {
+		exit(EXIT_FAILURE);
+	}
+
+	if (mnl_socket_sendto(nl, mnl_nlmsg_batch_head(batch),
+				  mnl_nlmsg_batch_size(batch)) < 0) {
+		exit(EXIT_FAILURE);
+	}
+
+	mnl_nlmsg_batch_stop(batch);
+}
+
+
 
 static int process_response(struct msg_buff *msgb, int len)
 {
@@ -39,9 +135,11 @@ static int process_response(struct msg_buff *msgb, int len)
 		/* We're done, stop running this process */
 		nfts_inst.stop = true;
 		return 0;
-	/* TODO: We'll have a pull command at some point, the code to parse
-	 *	 the xml/json ruleset should go here.
-	 */
+	case NFTS_CMD_PULL:
+		parse_payload(msgb);
+		/* We're done, stop running this process */
+		nfts_inst.stop = true;
+		return 0;
 	default:
 		break;
 	}
@@ -117,7 +215,6 @@ err1:
 	nft_fd_unregister(nfd);
 	tcp_client_destroy(c);
 }
-
 static void tcp_client_connect_cb(struct nft_fd *nfd, uint32_t mask)
 {
 	struct nft_sync_hdr *hdr;
@@ -138,6 +235,13 @@ static void tcp_client_connect_cb(struct nft_fd *nfd, uint32_t mask)
 		hdr->len = htonl(len);
 		memcpy(hdr->data, "fetch", strlen("fetch"));
 		msgb_put(msgb, strlen("fetch"));
+		break;
+	case NFTS_CMD_PULL:
+		len = strlen("pull") + sizeof(struct nft_sync_hdr);
+		hdr = msgb_put(msgb, sizeof(struct nft_sync_hdr));
+		hdr->len = htonl(len);
+		memcpy(hdr->data, "pull", strlen("pull"));
+		msgb_put(msgb, strlen("pull"));
 		break;
 	default:
 		nfts_log(NFTS_LOG_ERROR, "Unknown command");

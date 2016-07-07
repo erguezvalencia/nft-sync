@@ -35,13 +35,15 @@ static void print_usage(const char *prog_name)
 		"Usage: %s [-h] [-c]\n"
 		"	[ --help ]\n"
 		"	[ --config=<FILE> ]\n"
-		"	[ --fetch ]\n", prog_name, prog_name);
+		"	[ --fetch ]\n"
+		"	[ --pull ]\n", prog_name, prog_name);
 }
 
 static const struct option options[] = {
 	{ .name = "help",	.has_arg = false,	.val = 'h' },
 	{ .name = "config",	.has_arg = false,	.val = 'c' },
 	{ .name = "fetch",	.has_arg = false,	.val = 'f' },
+	{ .name = "pull",	.has_arg = false,	.val = 'p' },
 	{ NULL },
 };
 
@@ -63,7 +65,7 @@ int main(int argc, char *argv[])
 	int ret = EXIT_FAILURE, c;
 	const char *config = NFT_SYNC_CONF_DEFAULT;
 
-	while ((c = getopt_long(argc, argv, "hc:f", options, NULL)) != -1) {
+	while ((c = getopt_long(argc, argv, "hc:f:p", options, NULL)) != -1) {
 		switch (c) {
 		case 'h':
 			print_usage(argv[0]);
@@ -73,6 +75,9 @@ int main(int argc, char *argv[])
 			break;
 		case 'f':
 			set_cmd(NFTS_CMD_FETCH);
+			break;
+		case 'p':
+			set_cmd(NFTS_CMD_PULL);
 			break;
 		default:
 			fprintf(stderr, "Unknown option -%c\n", c);

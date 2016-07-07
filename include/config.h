@@ -17,7 +17,8 @@ enum nft_sync_mode {
 enum nft_sync_cmd {
 	NFTS_CMD_NONE		= 0,
 	NFTS_CMD_FETCH,
-	NFTS_CMD_MAX
+	NFTS_CMD_MAX,
+	NFTS_CMD_PULL
 };
 
 struct nft_sync_inst {

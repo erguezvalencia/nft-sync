@@ -62,6 +62,9 @@ AC_CHECK_HEADER([event.h],
 		[BUILD_LIBEV=$WITH_LIBEVENT],
 		[test x$WITH_LIBEVENT != xauto && AC_MSG_ERROR("libev-libevent-dev not found")])
 
+AC_CHECK_HEADER([mxml.h],
+		[BUILD_LIBMXML=$WITH_LIBMXML],
+		[test x$WITH_LIBMXML != xauto && AC_MSG_ERROR("libmxml-dev not found")])
 AC_CHECK_HEADERS(arpa/inet.h)
 dnl check for inet_pton
 AC_CHECK_FUNCS(inet_pton)

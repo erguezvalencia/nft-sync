@@ -60,6 +60,8 @@ static int nfts_parse_request(struct nft_fd *nfd, const char *req)
 
 	if (strncmp(req, "fetch", strlen("fetch")) == 0)
 		ret = send_ruleset(nfd);
+	if (strncmp(req, "pull", strlen("pull")) == 0)
+		ret = send_ruleset(nfd);
 
 	return ret;
 }

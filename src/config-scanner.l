@@ -30,6 +30,7 @@ string		[a-zA-Z0-9][a-zA-Z0-9\.\-\_\/\:]*
 "remote-address"	{ return T_REMOTE_ADDR; }
 "logging"		{ return T_LOG; }
 "mode"			{ return T_MODE; }
+"protocol"		{ return T_PROTOCOL; }
 
 {integer}		{ yylval.val = atoi(yytext); return T_INTEGER; }
 {string}		{ yylval.string = strdup(yytext); return T_STRING; }

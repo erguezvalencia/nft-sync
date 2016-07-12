@@ -21,3 +21,4 @@ tests/nft-sync-test
 .autotools
 .cproject
 .project
+/ca/

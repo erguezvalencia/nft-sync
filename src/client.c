@@ -24,6 +24,7 @@
 #include "mnl.h"
 #include "ruleset_parser.h"
 #include "mxml.h"
+#include "ssl.h"
 
 struct mnl_nlmsg_batch *batch;
 uint32_t seq;
@@ -45,28 +46,28 @@ static void parse_payload(struct msg_buff *msgb)
 	struct mnl_socket *nl;
 	mxml_node_t *tree, *node, *add;
 
+	// TODO: eliminar texto impreso por pantalla
 	write(1, msgb_data(msgb) + sizeof(struct nft_sync_hdr),
 	      msgb_len(msgb) - sizeof(struct nft_sync_hdr));
 	write(1, "\n", 1);
 
-	nfts_log(NFTS_LOG_INFO, "Applying ruleset");
+	nfts_log(NFTS_LOG_INFO, "applying ruleset");
 	data = malloc(msgb_len(msgb)+sizeof(struct nft_sync_hdr));
-	//pos = malloc(sizeof(char *));
+	if (data == NULL)
+		exit(EXIT_FAILURE);;
 	memcpy(data,(char *)(msgb_data(msgb) + sizeof(struct nft_sync_hdr)),msgb_len(msgb)+sizeof(struct nft_sync_hdr));
 
 	tree = mxmlLoadString(MXML_NO_PARENT, data, MXML_OPAQUE_CALLBACK);
 	if (tree == NULL) {
-		perror("error");
 		exit(EXIT_FAILURE);
 	}
 	node = mxmlFindElement(tree,tree,NULL,NULL,NULL, MXML_DESCEND_FIRST);
 	if (node == NULL) {
-		perror("error");
+		nfts_log(NFTS_LOG_ERROR, "no rules to apply");
 		exit(EXIT_FAILURE);
 	}
 	add = mxmlNewElement(MXML_NO_PARENT, "add");
 	if (add == NULL) {
-		perror("error");
 		exit(EXIT_FAILURE);
 	}
 	mxmlAdd(tree,MXML_ADD_BEFORE,tree,add);
@@ -74,19 +75,16 @@ static void parse_payload(struct msg_buff *msgb)
 
 	data=mxmlSaveAllocString(tree,MXML_NO_CALLBACK);
 	if (data == NULL) {
-		perror("error");
 		exit(EXIT_FAILURE);
 	}
 	mxmlDelete(tree);
 	err = nftnl_parse_err_alloc();
 	if (err == NULL) {
-		perror("error");
 		exit(EXIT_FAILURE);
 	}
 
 	batching = nftnl_batch_is_supported();
 	if (batching < 0) {
-		perror("Cannot talk to nfnetlink");
 		exit(EXIT_FAILURE);
 	}
 
@@ -98,11 +96,8 @@ static void parse_payload(struct msg_buff *msgb)
 		mnl_nlmsg_batch_next(batch);
 	}
 
-
 	ret = nftnl_ruleset_parse_buffer_cb(NFTNL_PARSE_XML, data, err, NULL,
 						&ruleset_elems_cb);
-
-
 
 	if (ret < 0) {
 		nftnl_parse_perror("fail", err);
@@ -124,7 +119,6 @@ static void parse_payload(struct msg_buff *msgb)
 		perror("mnl_socket_bind");
 		exit(EXIT_FAILURE);
 	}
-	//portid = mnl_socket_get_portid(nl);
 
 	if (mnl_socket_sendto(nl, mnl_nlmsg_batch_head(batch),
 				  mnl_nlmsg_batch_size(batch)) < 0) {
@@ -232,6 +226,77 @@ err1:
 	tcp_client_destroy(c);
 }
 
+static void ssl_client_established_cb(struct nft_fd *nfd, uint32_t mask)
+{
+	struct ssl_client *c = nfd->data;
+	struct nft_sync_hdr *hdr;
+	char buf[sizeof(struct nft_sync_hdr)];
+	struct msg_buff *msgb = ssl_client_get_data(c);
+	int ret, len;
+
+	if (msgb == NULL) {
+		/* Retrieve the header first to know the response length */
+		ret = ssl_client_recv(c, buf, sizeof(buf));
+		if (ret < 0) {
+			nfts_log(NFTS_LOG_ERROR, "cannot received from socket");
+			goto err1;
+		} else if (ret == 0) {
+			nfts_log(NFTS_LOG_ERROR,
+				 "connection from server has been closed\n");
+			/* FIXME retry every N seconds using a timer,
+			 * otherwise this sucks up the CPU by retrying to
+			 * connect very hard.
+			 */
+			goto err1;
+		}
+
+		hdr = (struct nft_sync_hdr *)buf;
+		len = ntohl(hdr->len);
+
+		/* Allocate a message for the entire response */
+		msgb = msgb_alloc(len);
+		if (msgb == NULL) {
+			nfts_log(NFTS_LOG_ERROR, "OOM");
+			goto err1;
+		}
+		memcpy(msgb_data(msgb), buf, sizeof(buf));
+		msgb_put(msgb, sizeof(buf));
+
+		/* Attach this message to the client */
+		ssl_client_set_data(c, msgb);
+	}
+
+	/* Retrieve as much data as we can in this round */
+	ret = ssl_client_recv(c, msgb_tail(msgb),
+			      msgb_size(msgb) - msgb_len(msgb));
+	if (ret < 0) {
+		nfts_log(NFTS_LOG_ERROR, "cannot received from socket");
+		goto err1;
+	} else if (ret == 0) {
+		nfts_log(NFTS_LOG_ERROR,
+			 "connection from server has been closed\n");
+		goto err1;
+	}
+	msgb_put(msgb, ret);
+
+	/* Not enough data to process the response yet */
+	if (msgb_len(msgb) < msgb_size(msgb))
+		return;
+
+
+	if (process_response(msgb, len) < 0) {
+		nfts_log(NFTS_LOG_ERROR, "discarding malformed response");
+		goto err1;
+	}
+	/* Detach this message from the client */
+	ssl_client_set_data(c, NULL);
+err1:
+	msgb_free(msgb);
+	close(ssl_client_get_fd(c));
+	nft_fd_unregister(nfd);
+	ssl_client_destroy(c);
+}
+
 static void tcp_client_connect_cb(struct nft_fd *nfd, uint32_t mask)
 {
 	struct nft_sync_hdr *hdr;
@@ -279,6 +344,53 @@ static void tcp_client_connect_cb(struct nft_fd *nfd, uint32_t mask)
 	nft_fd_register(nfd, EV_READ | EV_PERSIST);
 }
 
+static void ssl_client_connect_cb(struct nft_fd *nfd, uint32_t mask)
+{
+	struct nft_sync_hdr *hdr;
+	struct ssl_client *c = nfd->data;
+	struct msg_buff *msgb;
+	int len;
+
+	msgb = msgb_alloc(NFTS_MAX_REQUEST);
+	if (msgb == NULL) {
+		nfts_log(NFTS_LOG_ERROR, "OOM");
+		return;
+	}
+
+	switch (nfts_inst.cmd) {
+	case NFTS_CMD_FETCH:
+		len = strlen("fetch") + sizeof(struct nft_sync_hdr);
+		hdr = msgb_put(msgb, sizeof(struct nft_sync_hdr));
+		hdr->len = htonl(len);
+		memcpy(hdr->data, "fetch", strlen("fetch"));
+		msgb_put(msgb, strlen("fetch"));
+		break;
+	case NFTS_CMD_PULL:
+		len = strlen("pull") + sizeof(struct nft_sync_hdr);
+		hdr = msgb_put(msgb, sizeof(struct nft_sync_hdr));
+		hdr->len = htonl(len);
+		memcpy(hdr->data, "pull", strlen("pull"));
+		msgb_put(msgb, strlen("pull"));
+		break;
+	default:
+		nfts_log(NFTS_LOG_ERROR, "Unknown command");
+		return;
+	}
+
+	if (ssl_client_send(c, msgb_data(msgb), msgb_len(msgb)) < 0) {
+		nfts_log(NFTS_LOG_ERROR, "cannot send to socket: %s",
+			 strerror(errno));
+		exit(EXIT_FAILURE);
+	}
+
+	/* Now that we got connected, register the descriptor again to
+	 * permanently listen for incoming data.
+	 */
+	nft_fd_setup(&nfts_inst.tcp_client_nfd, ssl_client_get_fd(c),
+		     ssl_client_established_cb, c);
+	nft_fd_register(nfd, EV_READ | EV_PERSIST);
+}
+
 int tcp_client_start(struct nft_sync_inst *inst)
 {
 	struct tcp_client *c;
@@ -291,6 +403,23 @@ int tcp_client_start(struct nft_sync_inst *inst)
 
 	nft_fd_setup(&inst->tcp_client_nfd, tcp_client_get_fd(c),
 		     tcp_client_connect_cb, c);
+	nft_fd_register(&inst->tcp_client_nfd, EV_WRITE);
+
+	return 0;
+}
+
+int ssl_client_start(struct nft_sync_inst *inst)
+{
+	struct ssl_client *c;
+
+	c = ssl_client_create((struct ssl_conf *)&inst->tcp);
+	if (c == NULL) {
+		fprintf(stderr, "cannot initialize SSL client\n");
+		return -1;
+	}
+
+	nft_fd_setup(&inst->tcp_client_nfd, ssl_client_get_fd(c),
+		     ssl_client_connect_cb, c);
 	nft_fd_register(&inst->tcp_client_nfd, EV_WRITE);
 
 	return 0;

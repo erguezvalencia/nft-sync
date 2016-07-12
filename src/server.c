@@ -15,6 +15,10 @@
 #include <config.h>
 #include <string.h>
 #include <errno.h>
+#include "openssl/bio.h"
+#include "openssl/ssl.h"
+#include "openssl/err.h"
+
 
 #include "init.h"
 #include "logging.h"
@@ -24,12 +28,16 @@
 #include "proto.h"
 #include "mnl.h"
 #include "utils.h"
+#include "ssl.h"
 
-static int send_ruleset(struct nft_fd *nfd)
+
+static struct ssl_server *sserver;
+
+static int send_ruleset(struct nft_fd *nfd, enum nft_protocol type)
 {
 	struct msg_buff *msgb;
 	struct nft_sync_hdr *hdr;
-	int ret, ruleset_len;
+	int ret=0, ruleset_len;
 	const char *ruleset = netlink_dump_ruleset(nfts_inst.nl_query_sock);
 
 	if (ruleset == NULL)
@@ -48,23 +56,26 @@ static int send_ruleset(struct nft_fd *nfd)
 	memcpy(hdr->data, ruleset, ruleset_len);
 	xfree(ruleset);
 
-	ret = send(nfd->fd, msgb_data(msgb), msgb_len(msgb), 0);
+	if (type == NFTS_PROTOCOL_TCP)
+		ret = send(nfd->fd, msgb_data(msgb), msgb_len(msgb), 0);
+	if (type == NFTS_PROTOCOL_SSL)
+		ret = SSL_write (sserver->ssl, msgb_data(msgb), msgb_len(msgb));
 	msgb_free(msgb);
 
 	return ret;
 }
 
-static int nfts_parse_request(struct nft_fd *nfd, const char *req)
+static int nfts_parse_request(struct nft_fd *nfd, const char *req, enum nft_protocol type)
 {
 	int ret = -1;
-
 	if (strncmp(req, "fetch", strlen("fetch")) == 0)
-		ret = send_ruleset(nfd);
+		ret = send_ruleset(nfd, type);
 	if (strncmp(req, "pull", strlen("pull")) == 0)
-		ret = send_ruleset(nfd);
+		ret = send_ruleset(nfd, type);
 
 	return ret;
 }
+
 
 static void tcp_server_established_cb(struct nft_fd *nfd, uint32_t mask)
 {
@@ -107,7 +118,7 @@ static void tcp_server_established_cb(struct nft_fd *nfd, uint32_t mask)
 		goto err1;
 	}
 
-	if (nfts_parse_request(nfd, hdr->data) < 0) {
+	if (nfts_parse_request(nfd, hdr->data, NFTS_PROTOCOL_TCP) < 0) {
 		nfts_log(NFTS_LOG_ERROR, "discarding malformed request");
 		goto err1;
 	}
@@ -122,6 +133,72 @@ static void tcp_server_established_cb(struct nft_fd *nfd, uint32_t mask)
 err1:
 	nfts_log(NFTS_LOG_NOTICE, "closing connection");
 	msgb_free(msgb);
+	close(nfd->fd);
+	nft_fd_unregister(nfd);
+	nft_fd_free(nfd);
+}
+
+static void ssl_server_established_cb(struct nft_fd *nfd, uint32_t mask)
+{
+	struct msg_buff *msgb = nfd->data;
+	struct nft_sync_hdr *hdr;
+	uint32_t len;
+	int ret;
+	ret = SSL_read (sserver->ssl,  msgb_tail(msgb),
+			   msgb_size(msgb) - msgb_len(msgb));
+	if (ret == 0){
+		ret=SSL_get_error(sserver->ssl,ret);
+		goto err1;
+	}
+	else if (ret < 0) {
+		nfts_log(NFTS_LOG_ERROR, "cannot receive from client");
+		ret=SSL_get_error(sserver->ssl,ret);
+		nfts_log(NFTS_LOG_ERROR, "%d", ret);
+
+		goto err1;
+	}
+	msgb_put(msgb, ret);
+
+	/* Not enough room for header yet, grab more bytes later */
+	if (msgb_len(msgb) < sizeof(struct nft_sync_hdr))
+		return;
+
+	hdr = (struct nft_sync_hdr *) msgb_data(msgb);
+
+	len = ntohl(hdr->len);
+
+	if (len >= NFTS_MAX_REQUEST) {
+		nfts_log(NFTS_LOG_ERROR, "discarding message too large %d",
+			 len, NFTS_MAX_REQUEST);
+		goto err1;
+	}
+
+	/* Not enough data to process this request yet */
+	if (len < (uint32_t)ret)
+		return;
+
+	hdr = msgb_pull(msgb, len);
+	if (hdr == NULL) {
+		nfts_log(NFTS_LOG_FATAL, "cannot pull out header");
+		goto err1;
+	}
+
+	if (nfts_parse_request(nfd, hdr->data,NFTS_PROTOCOL_SSL) < 0) {
+		nfts_log(NFTS_LOG_ERROR, "discarding malformed request");
+		goto err1;
+	}
+
+	/* There's still some pending bytes from the stream in the message,
+	 * move them at the head of the message buffer.
+	 */
+	if (msgb_len(msgb) > 0)
+		msgb_burp(msgb);
+
+	return;
+err1:
+	nfts_log(NFTS_LOG_NOTICE, "closing connection");
+	msgb_free(msgb);
+	close (sserver->sd);
 	close(nfd->fd);
 	nft_fd_unregister(nfd);
 	nft_fd_free(nfd);
@@ -154,6 +231,33 @@ static void tcp_server_cb(struct nft_fd *nfd, uint32_t mask)
 	nft_fd_register(accept_nfd, EV_READ | EV_PERSIST);
 }
 
+static void ssl_server_cb(struct nft_fd *nfd, uint32_t mask)
+{
+	struct nft_fd *accept_nfd;
+	struct msg_buff *msgb;
+	struct sockaddr_in addr;
+	int fd;
+
+	msgb = msgb_alloc(NFTS_MAX_REQUEST);
+	if (msgb == NULL) {
+		nfts_log(NFTS_LOG_ERROR, "OOM");
+		return;
+	}
+
+	fd = ssl_server_accept(nfd->data, &addr);
+	if (fd < 0) {
+		msgb_free(msgb);
+		nfts_log(NFTS_LOG_ERROR, "failed to accept socket");
+		return;
+	}
+	nfts_log(NFTS_LOG_NOTICE, "accepted new connection from %s",
+		 inet_ntoa(addr.sin_addr));
+
+	accept_nfd = nft_fd_alloc();
+	nft_fd_setup(accept_nfd, sserver->sd, ssl_server_established_cb, msgb);
+	nft_fd_register(accept_nfd, EV_READ | EV_PERSIST);
+}
+
 int tcp_server_start(struct nft_sync_inst *inst)
 {
 	struct tcp_server *s;
@@ -167,6 +271,24 @@ int tcp_server_start(struct nft_sync_inst *inst)
 
 	nft_fd_setup(&inst->tcp_server_fd, tcp_server_get_fd(s),
 		     tcp_server_cb, s);
+	nft_fd_register(&inst->tcp_server_fd, EV_READ | EV_PERSIST);
+
+	return 0;
+}
+
+int ssl_server_start(struct nft_sync_inst *inst)
+{
+
+
+	nfts_inst.tcp.ipproto = AF_INET;
+	nfts_inst.tcp.port = 1234;
+
+	sserver = ssl_server_create((struct ssl_conf *)&inst->tcp);
+	if (sserver == NULL)
+		return -1;
+
+	nft_fd_setup(&inst->tcp_server_fd, ssl_server_get_fd(sserver),
+			ssl_server_cb, sserver);
 	nft_fd_register(&inst->tcp_server_fd, EV_READ | EV_PERSIST);
 
 	return 0;

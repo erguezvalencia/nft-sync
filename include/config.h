@@ -8,6 +8,10 @@
 #include "proto.h"
 
 #include <libmnl/libmnl.h>
+enum nft_protocol {
+	NFTS_PROTOCOL_TCP = 0,
+	NFTS_PROTOCOL_SSL = 1,
+};
 
 enum nft_sync_mode {
 	NFTS_MODE_SERVER	= (1 << 0),
@@ -24,6 +28,7 @@ enum nft_sync_cmd {
 struct nft_sync_inst {
 	enum nft_sync_mode	mode;
 	enum nft_sync_cmd	cmd;
+	enum nft_protocol protocol;
 	bool			stop;
 	struct {
 		bool		color;

@@ -225,6 +225,7 @@ struct tcp_client *tcp_client_create(struct tcp_conf *conf)
 	return c;
 }
 
+
 void tcp_client_destroy(struct tcp_client *c)
 {
 	close(c->fd);

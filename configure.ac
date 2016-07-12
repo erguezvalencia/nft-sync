@@ -65,6 +65,15 @@ AC_CHECK_HEADER([event.h],
 AC_CHECK_HEADER([mxml.h],
 		[BUILD_LIBMXML=$WITH_LIBMXML],
 		[test x$WITH_LIBMXML != xauto && AC_MSG_ERROR("libmxml-dev not found")])
+
+AC_CHECK_HEADER([openssl/ssl.h],
+		[BUILD_LIBSSL=$WITH_LIBSSL],
+		[test x$WITH_LIBSSL != xauto && AC_MSG_ERROR("libssl-dev not found")])
+
+AC_CHECK_HEADER([openssl/err.h],
+		[BUILD_LIBSSL=$WITH_LIBSSL],
+		[test x$WITH_LIBSSL != xauto && AC_MSG_ERROR("libssl-dev not found")])
+
 AC_CHECK_HEADERS(arpa/inet.h)
 dnl check for inet_pton
 AC_CHECK_FUNCS(inet_pton)

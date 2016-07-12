@@ -55,6 +55,7 @@ static int parse_addr(const char *text, struct in_addr *addr,
 %token T_NUMBER
 %token T_LOG
 %token T_MODE
+%token T_PROTOCOL
 
 %token <string> T_STRING
 %token <val>	T_INTEGER
@@ -75,6 +76,7 @@ section		: network
 
 network		: local_addr
 		| remote_addr
+		| protocol
 		;
 
 local_addr	: T_LOCAL_ADDR T_STRING
@@ -97,6 +99,16 @@ remote_addr	: T_REMOTE_ADDR T_STRING
 				break;
 
 			nfts_inst.mode = NFTS_MODE_CLIENT;
+		}
+		;
+		
+protocol : T_PROTOCOL T_STRING
+		{
+			if (strcmp($2, "ssl") == 0) {
+				nfts_inst.protocol = NFTS_PROTOCOL_SSL;
+				break;
+			}
+			nfts_inst.protocol = NFTS_PROTOCOL_TCP;
 		}
 		;
 

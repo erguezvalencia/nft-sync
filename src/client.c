@@ -15,6 +15,7 @@
 #include <config.h>
 #include <string.h>
 #include <errno.h>
+#include <jansson.h>
 
 #include "init.h"
 #include "logging.h"
@@ -23,7 +24,7 @@
 #include "config.h"
 #include "mnl.h"
 #include "ruleset_parser.h"
-#include "mxml.h"
+
 
 struct mnl_nlmsg_batch *batch;
 uint32_t seq;
@@ -40,42 +41,61 @@ static void parse_payload(struct msg_buff *msgb)
 {
 	int ret = -1, batching;
 	char *data;
-	struct nftnl_parse_err *err;
+	struct nftnl_parse_err *err=NULL;
 	char buf[MNL_SOCKET_BUFFER_SIZE];
 	struct mnl_socket *nl;
-	mxml_node_t *tree, *node, *add;
+	json_t *root, *array, *add;
+	json_t *json_arr = json_array();
+	json_error_t error;
 
 	nfts_log(NFTS_LOG_INFO, "Applying ruleset");
 	data = malloc(msgb_len(msgb)+sizeof(struct nft_sync_hdr));
 	if (data == NULL){
 		nfts_log(NFTS_LOG_ERROR, "OOM");
 	}
-	memcpy(data,(char *)(msgb_data(msgb) + sizeof(struct nft_sync_hdr)),msgb_len(msgb)+sizeof(struct nft_sync_hdr));
+	memcpy(data,(char *)(msgb_data(msgb) + sizeof(struct nft_sync_hdr)),msgb_len(msgb)-sizeof(struct nft_sync_hdr));
 
-	tree = mxmlLoadString(MXML_NO_PARENT, data, MXML_OPAQUE_CALLBACK);
-	if (tree == NULL) {
+	root = json_loads(data, 0, &error);
+	if (!root)
 		exit(EXIT_FAILURE);
-	}
-	node = mxmlFindElement(tree,tree,NULL,NULL,NULL, MXML_DESCEND_FIRST);
-	if (node == NULL) {
-		exit(EXIT_FAILURE);
-	}
-	add = mxmlNewElement(MXML_NO_PARENT, "add");
-	if (add == NULL) {
-		exit(EXIT_FAILURE);
-	}
-	mxmlAdd(tree,MXML_ADD_BEFORE,tree,add);
-	mxmlAdd(add,MXML_ADD_BEFORE,tree,node);
 
-	data=mxmlSaveAllocString(tree,MXML_NO_CALLBACK);
-	if (data == NULL) {
-		exit(EXIT_FAILURE);
+	array = json_object_get(root,"nftables");
+	if(!json_is_array(array)){
+		goto err1;
 	}
-	mxmlDelete(tree);
-	err = nftnl_parse_err_alloc();
-	if (err == NULL) {
-		exit(EXIT_FAILURE);
+
+	add = json_object();
+	if (!add) {
+		goto err2;
 	}
+
+	ret = json_object_set_new( add, "add", array );
+	if (ret < 0) {
+		goto err4;
+	}
+
+	root = json_object();
+	if (!root) {
+		goto err3;
+	}
+	ret = json_array_insert_new(json_arr,0,add);
+	if (ret < 0) {
+		goto err4;
+	}
+
+	ret = json_object_set_new(root,"nftables",json_arr);
+	if (ret < 0) {
+		goto err4;
+	}
+
+	data = json_dumps(root, 0);
+	if (!data) {
+		goto err4;
+	}
+
+	json_decref(root);
+	json_decref(array);
+	json_decref(add);
 
 	batching = nftnl_batch_is_supported();
 	if (batching < 0) {
@@ -91,10 +111,8 @@ static void parse_payload(struct msg_buff *msgb)
 	}
 
 
-	ret = nftnl_ruleset_parse_buffer_cb(NFTNL_PARSE_XML, data, err, NULL,
+	ret = nftnl_ruleset_parse_buffer_cb(NFTNL_PARSE_JSON, data, err, NULL,
 						&ruleset_elems_cb);
-
-
 
 	if (ret < 0) {
 		nftnl_parse_perror("fail", err);
@@ -121,6 +139,23 @@ static void parse_payload(struct msg_buff *msgb)
 	}
 
 	mnl_nlmsg_batch_stop(batch);
+	return;
+err4:
+	json_decref(root);
+	json_decref(array);
+	json_decref(add);
+	return;
+err3:
+	json_decref(array);
+	json_decref(add);
+	return;
+err2:
+	json_decref(root);
+	json_decref(array);
+	return;
+err1:
+	json_decref(root);
+	return;
 }
 
 

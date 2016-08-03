@@ -395,7 +395,7 @@ const char *netlink_dump_ruleset(struct mnl_socket *s)
 		return NULL;
 	}
 
-	ret = nft_ruleset_snprintf(buf, bufsiz, rs, NFT_OUTPUT_XML, 0);
+	ret = nft_ruleset_snprintf(buf, bufsiz, rs, NFT_OUTPUT_JSON, 0);
 	if (ret > SNPRINTF_BUFSIZ) {
 		free(buf);
 		buf = calloc(1, ret);
@@ -405,7 +405,7 @@ const char *netlink_dump_ruleset(struct mnl_socket *s)
 		}
 
 		bufsiz = ret;
-		ret = nft_ruleset_snprintf(buf, bufsiz, rs, NFT_OUTPUT_XML, 0);
+		ret = nft_ruleset_snprintf(buf, bufsiz, rs, NFT_OUTPUT_JSON, 0);
 	}
 
 	nft_ruleset_free(rs);

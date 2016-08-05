@@ -32,18 +32,23 @@ static void print_usage(const char *prog_name)
 {
 	fprintf(stderr,
 		"%s (c) 2014 by Pablo Neira Ayuso <pablo@netfilter.org>\n"
-		"Usage: %s [-h] [-c]\n"
-		"	[ --help ]\n"
-		"	[ --config=<FILE> ]\n"
-		"	[ --fetch ]\n"
-		"	[ --pull ]\n", prog_name, prog_name);
+		"Usage: %s [-h] [-c] [-p] [-f]\n"
+		"	--help\n"
+		"	--config=<FILE> \n"
+		"	--fetch \n"
+		"	--pull [<RULE>]\n"
+		"EXAMPLES:\n"
+		"	nft-sync --fetch\n"
+		"	nft-sync --pull=01-table.json\n"
+		"	nft-sync -p 01-table.json\n"
+		"	nft-sync --pull\n",prog_name, prog_name);
 }
 
 static const struct option options[] = {
-	{ .name = "help",	.has_arg = false,	.val = 'h' },
-	{ .name = "config",	.has_arg = false,	.val = 'c' },
-	{ .name = "fetch",	.has_arg = false,	.val = 'f' },
-	{ .name = "pull",	.has_arg = false,	.val = 'p' },
+	{ .name = "help",	.has_arg = false,				.val = 'h' },
+	{ .name = "config",	.has_arg = required_argument,	.val = 'c' },
+	{ .name = "fetch",	.has_arg = optional_argument,	.val = 'f' },
+	{ .name = "pull",	.has_arg = optional_argument,	.val = 'p' },
 	{ NULL },
 };
 
@@ -60,12 +65,25 @@ static int set_cmd(int cmd)
 	return 0;
 }
 
+static int set_rule(char *rule)
+{
+	if (nfts_inst.rule) {
+		fprintf(stderr,
+			"Cannot specify multiple rules at the same time\n");
+		return -1;
+	}
+	nfts_inst.rule = rule;
+	return 0;
+}
+
 int main(int argc, char *argv[])
 {
 	int ret = EXIT_FAILURE, c;
 	const char *config = NFT_SYNC_CONF_DEFAULT;
+	char *rule = NULL;
 
-	while ((c = getopt_long(argc, argv, "hc:f:p", options, NULL)) != -1) {
+	nfts_inst.rules_dir = (void *)NFTS_RULES_DIR_DEFAULT;
+	while ((c = getopt_long(argc, argv, "hc:f:p:", options, NULL)) != -1) {
 		switch (c) {
 		case 'h':
 			print_usage(argv[0]);
@@ -74,9 +92,13 @@ int main(int argc, char *argv[])
 			config = optarg;
 			break;
 		case 'f':
+			rule = optarg;
+			set_rule(rule);
 			set_cmd(NFTS_CMD_FETCH);
 			break;
 		case 'p':
+			rule = optarg;
+			set_rule(rule);
 			set_cmd(NFTS_CMD_PULL);
 			break;
 		default:

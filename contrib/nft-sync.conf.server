@@ -9,3 +9,6 @@ local-address 127.0.0.1:1234
 
 # Display logging to the standard output
 logging stdout
+
+# Local rules repository
+rules-dir /etc/nft-sync/rules/

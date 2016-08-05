@@ -24,7 +24,7 @@
 #include "config.h"
 #include "mnl.h"
 #include "ruleset_parser.h"
-
+#include "utils.h"
 
 struct mnl_nlmsg_batch *batch;
 uint32_t seq;
@@ -41,61 +41,63 @@ static void parse_payload(struct msg_buff *msgb)
 {
 	int ret = -1, batching;
 	char *data;
-	struct nftnl_parse_err *err=NULL;
+	struct nftnl_parse_err *err;
 	char buf[MNL_SOCKET_BUFFER_SIZE];
 	struct mnl_socket *nl;
 	json_t *root, *array, *add;
 	json_t *json_arr = json_array();
 	json_error_t error;
 
-	nfts_log(NFTS_LOG_INFO, "Applying ruleset");
+	nfts_log(NFTS_LOG_INFO, "applying ruleset");
 	data = malloc(msgb_len(msgb)+sizeof(struct nft_sync_hdr));
 	if (data == NULL){
 		nfts_log(NFTS_LOG_ERROR, "OOM");
 	}
 	memcpy(data,(char *)(msgb_data(msgb) + sizeof(struct nft_sync_hdr)),msgb_len(msgb)-sizeof(struct nft_sync_hdr));
-
-	root = json_loads(data, 0, &error);
-	if (!root)
+	root = json_loads(data, JSON_DISABLE_EOF_CHECK, &error);
+	if (root == NULL)
 		exit(EXIT_FAILURE);
+	xfree(data);
 
-	array = json_object_get(root,"nftables");
-	if(!json_is_array(array)){
-		goto err1;
-	}
+	if(!nfts_inst.rule) {
+		array = json_object_get(root,"nftables");
+		if(!json_is_array(array)){
+			goto err1;
+		}
 
-	add = json_object();
-	if (!add) {
-		goto err2;
-	}
+		add = json_object();
+		if (!add) {
+			goto err2;
+		}
 
-	ret = json_object_set_new( add, "add", array );
-	if (ret < 0) {
-		goto err4;
-	}
+		ret = json_object_set_new( add, "add", array );
+		if (ret < 0) {
+			goto err4;
+		}
 
-	root = json_object();
-	if (!root) {
-		goto err3;
-	}
-	ret = json_array_insert_new(json_arr,0,add);
-	if (ret < 0) {
-		goto err4;
-	}
+		root = json_object();
+		if (!root) {
+			goto err3;
+		}
+		ret = json_array_insert_new(json_arr,0,add);
+		if (ret < 0) {
+			goto err4;
+		}
 
-	ret = json_object_set_new(root,"nftables",json_arr);
-	if (ret < 0) {
-		goto err4;
+		ret = json_object_set_new(root,"nftables",json_arr);
+		if (ret < 0) {
+			goto err4;
+		}
 	}
 
 	data = json_dumps(root, 0);
 	if (!data) {
-		goto err4;
+		exit(EXIT_FAILURE);
 	}
 
 	json_decref(root);
-	json_decref(array);
-	json_decref(add);
+	if (array)
+		json_decref(array);
 
 	batching = nftnl_batch_is_supported();
 	if (batching < 0) {
@@ -110,6 +112,10 @@ static void parse_payload(struct msg_buff *msgb)
 		mnl_nlmsg_batch_next(batch);
 	}
 
+	err = nftnl_parse_err_alloc();
+	if (err == NULL) {
+		exit(EXIT_FAILURE);
+	}
 
 	ret = nftnl_ruleset_parse_buffer_cb(NFTNL_PARSE_JSON, data, err, NULL,
 						&ruleset_elems_cb);
@@ -139,6 +145,7 @@ static void parse_payload(struct msg_buff *msgb)
 	}
 
 	mnl_nlmsg_batch_stop(batch);
+	xfree(err);
 	return;
 err4:
 	json_decref(root);
@@ -197,12 +204,14 @@ static void tcp_client_established_cb(struct nft_fd *nfd, uint32_t mask)
 			goto err1;
 		} else if (ret == 0) {
 			nfts_log(NFTS_LOG_ERROR,
-				 "connection from server has been closed\n");
+							 "cannot find rule");
+			nfts_log(NFTS_LOG_ERROR,
+				 "connection from server has been closed");
 			/* FIXME retry every N seconds using a timer,
 			 * otherwise this sucks up the CPU by retrying to
 			 * connect very hard.
 			 */
-			goto err1;
+			goto err2;
 		}
 
 		hdr = (struct nft_sync_hdr *)buf;
@@ -229,7 +238,7 @@ static void tcp_client_established_cb(struct nft_fd *nfd, uint32_t mask)
 		goto err1;
 	} else if (ret == 0) {
 		nfts_log(NFTS_LOG_ERROR,
-			 "connection from server has been closed\n");
+			 "connection from server has been closed");
 		goto err1;
 	}
 	msgb_put(msgb, ret);
@@ -239,7 +248,8 @@ static void tcp_client_established_cb(struct nft_fd *nfd, uint32_t mask)
 		return;
 
 	if (process_response(msgb, len) < 0) {
-		nfts_log(NFTS_LOG_ERROR, "discarding malformed response");
+		nfts_log(NFTS_LOG_ERROR,
+				"connection from server has been closed");
 		goto err1;
 	}
 	/* Detach this message from the client */
@@ -249,6 +259,13 @@ err1:
 	close(tcp_client_get_fd(c));
 	nft_fd_unregister(nfd);
 	tcp_client_destroy(c);
+	return;
+err2:
+	msgb_free(msgb);
+	close(tcp_client_get_fd(c));
+	nft_fd_unregister(nfd);
+	tcp_client_destroy(c);
+	exit(EXIT_FAILURE);
 }
 static void tcp_client_connect_cb(struct nft_fd *nfd, uint32_t mask)
 {
@@ -256,6 +273,7 @@ static void tcp_client_connect_cb(struct nft_fd *nfd, uint32_t mask)
 	struct tcp_client *c = nfd->data;
 	struct msg_buff *msgb;
 	int len;
+	char buf[256];
 
 	msgb = msgb_alloc(NFTS_MAX_REQUEST);
 	if (msgb == NULL) {
@@ -272,11 +290,22 @@ static void tcp_client_connect_cb(struct nft_fd *nfd, uint32_t mask)
 		msgb_put(msgb, strlen("fetch"));
 		break;
 	case NFTS_CMD_PULL:
-		len = strlen("pull") + sizeof(struct nft_sync_hdr);
-		hdr = msgb_put(msgb, sizeof(struct nft_sync_hdr));
-		hdr->len = htonl(len);
-		memcpy(hdr->data, "pull", strlen("pull"));
-		msgb_put(msgb, strlen("pull"));
+		if (nfts_inst.rule) {
+			len = strlen("pull") + strlen(nfts_inst.rule) + sizeof(struct nft_sync_hdr) + 1;
+			hdr = msgb_put(msgb, sizeof(struct nft_sync_hdr));
+			hdr->len = htonl(len);
+			snprintf(buf, sizeof buf, "pull;%s",nfts_inst.rule);
+			memcpy(hdr->data, buf, strlen(buf));
+			msgb_put(msgb, strlen(buf));
+		}
+		else {
+			len = strlen("pull") + sizeof(struct nft_sync_hdr);
+			hdr = msgb_put(msgb, sizeof(struct nft_sync_hdr));
+			hdr->len = htonl(len);
+			memcpy(hdr->data, "pull", strlen("pull"));
+			msgb_put(msgb, strlen("pull"));
+			break;
+		}
 		break;
 	default:
 		nfts_log(NFTS_LOG_ERROR, "Unknown command");
@@ -303,7 +332,7 @@ int tcp_client_start(struct nft_sync_inst *inst)
 
 	c = tcp_client_create(&inst->tcp);
 	if (c == NULL) {
-		fprintf(stderr, "cannot initialize TCP client\n");
+		fprintf(stderr, "cannot initialize TCP client");
 		return -1;
 	}
 

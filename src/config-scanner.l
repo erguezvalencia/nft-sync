@@ -24,15 +24,19 @@ is_on		[o|O][n|N]
 is_off		[o|O][f|F][f|F]
 integer		[\-\+]?[0-9]+
 string		[a-zA-Z0-9][a-zA-Z0-9\.\-\_\/\:]*
+dir			[a-zA-Z0-9\.\-\_\/\:]*
 
 %%
 "local-address"		{ return T_LOCAL_ADDR; }
 "remote-address"	{ return T_REMOTE_ADDR; }
+"rules-dir"		{ return T_RULES_DIR; }
 "logging"		{ return T_LOG; }
 "mode"			{ return T_MODE; }
 
 {integer}		{ yylval.val = atoi(yytext); return T_INTEGER; }
 {string}		{ yylval.string = strdup(yytext); return T_STRING; }
+{dir}			{ yylval.string = strdup(yytext); return T_DIR; }
+
 
 {comment}		;
 {ws}			;

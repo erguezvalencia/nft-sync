@@ -25,6 +25,52 @@
 #include "mnl.h"
 #include "utils.h"
 
+static int send_ruleset_offline(struct nft_fd *nfd, char *rule)
+{
+	struct msg_buff *msgb;
+	struct nft_sync_hdr *hdr;
+	int ret, ruleset_len;
+	char filename[255];
+	char *ruleset;
+	long fsize;
+	FILE *fp;
+
+	sprintf(filename,nfts_inst.rules_dir);
+	sprintf(filename + strlen(filename),rule);
+
+	/* TODO: check if filename is vulnerable to local file inclusion */
+	fp = fopen(filename, "r");
+	if (!fp) {
+		return -1;
+	}
+	fseek(fp, 0, SEEK_END);
+	fsize = ftell(fp);
+	ruleset=malloc(sizeof(char) * (fsize));
+	fseek(fp, 0, SEEK_SET);
+	fread(ruleset,fsize,1,fp);
+	ruleset[strcspn(ruleset, "\n")] = '\0';
+	fclose(fp);
+
+	if (ruleset == NULL)
+		return 0;
+
+	ruleset_len = strlen(ruleset);
+
+	msgb = msgb_alloc(sizeof(struct nft_sync_hdr) + ruleset_len);
+	if (msgb == NULL) {
+		xfree(ruleset);
+		return -1;
+	}
+
+	hdr = msgb_put(msgb, sizeof(struct nft_sync_hdr) + ruleset_len);
+	hdr->len = htonl(sizeof(struct nft_sync_hdr) + ruleset_len);
+	memcpy(hdr->data, ruleset, ruleset_len);
+	ret = send(nfd->fd, msgb_data(msgb), msgb_len(msgb), 0);
+	msgb_free(msgb);
+
+	return ret;
+}
+
 static int send_ruleset(struct nft_fd *nfd)
 {
 	struct msg_buff *msgb;
@@ -46,8 +92,6 @@ static int send_ruleset(struct nft_fd *nfd)
 	hdr = msgb_put(msgb, sizeof(struct nft_sync_hdr) + ruleset_len);
 	hdr->len = htonl(sizeof(struct nft_sync_hdr) + ruleset_len);
 	memcpy(hdr->data, ruleset, ruleset_len);
-	xfree(ruleset);
-
 	ret = send(nfd->fd, msgb_data(msgb), msgb_len(msgb), 0);
 	msgb_free(msgb);
 
@@ -57,22 +101,34 @@ static int send_ruleset(struct nft_fd *nfd)
 static int nfts_parse_request(struct nft_fd *nfd, const char *req)
 {
 	int ret = -1;
-
+	char cmd[256];
+	char *rule;
+	const char *separator = ";";
+	strncpy(cmd,req,sizeof(cmd)-1);
 	if (strncmp(req, "fetch", strlen("fetch")) == 0)
 		ret = send_ruleset(nfd);
-	if (strncmp(req, "pull", strlen("pull")) == 0)
-		ret = send_ruleset(nfd);
+	if (strncmp(req, "pull", strlen("pull")) == 0) {
+		if(strstr(req, ";") != NULL) {
+			rule = strtok(cmd, separator);
+			rule = strtok(NULL, "");
+			ret = send_ruleset_offline(nfd, rule);
+		}
+		else {
+			ret = send_ruleset(nfd);
+		}
+	}
 
 	return ret;
 }
 
 static void tcp_server_established_cb(struct nft_fd *nfd, uint32_t mask)
 {
-	struct msg_buff *msgb = nfd->data;
+	struct msg_buff *msgb;
 	struct nft_sync_hdr *hdr;
 	uint32_t len;
 	int ret;
-
+	/*TODO: check if this new alloc has no lateral effects. Previously: msgb = nfd->data */
+	msgb = msgb_alloc(NFTS_MAX_REQUEST);
 	ret = recv(nfd->fd, msgb_tail(msgb),
 		   msgb_size(msgb) - msgb_len(msgb), 0);
 	if (ret == 0)
@@ -106,18 +162,24 @@ static void tcp_server_established_cb(struct nft_fd *nfd, uint32_t mask)
 		nfts_log(NFTS_LOG_FATAL, "cannot pull out header");
 		goto err1;
 	}
-
-	if (nfts_parse_request(nfd, hdr->data) < 0) {
-		nfts_log(NFTS_LOG_ERROR, "discarding malformed request");
-		goto err1;
+	ret = nfts_parse_request(nfd, hdr->data);
+	if (ret < 0) {
+		if (ret == -1) {
+			nfts_log(NFTS_LOG_ERROR, "cannot find rule");
+			goto err1;
+		}
+		else {
+			nfts_log(NFTS_LOG_ERROR, "discarding malformed request");
+			goto err1;
+		}
 	}
+	hdr = (struct nft_sync_hdr *) msgb_data(msgb);
 
 	/* There's still some pending bytes from the stream in the message,
 	 * move them at the head of the message buffer.
 	 */
 	if (msgb_len(msgb) > 0)
 		msgb_burp(msgb);
-
 	return;
 err1:
 	nfts_log(NFTS_LOG_NOTICE, "closing connection");

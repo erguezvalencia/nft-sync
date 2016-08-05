@@ -35,10 +35,15 @@ struct nft_sync_inst {
 	struct nft_fd		tcp_client_nfd;
 	struct nft_fd		tcp_server_fd;
 	struct mnl_socket	*nl_query_sock;
+	char			*rule;
+	char			*rules_dir;
 };
 
 extern struct nft_sync_inst nfts_inst;
 
 int nft_sync_config_parse(const char *filename);
+
+#define NFTS_RULES_DIR_DEFAULT	"/etc/nft-sync/rules/"
+
 
 #endif /* _NFT_CONFIG_H_ */

@@ -15,6 +15,8 @@
 #include <errno.h>
 #include <stdarg.h>
 #include <netinet/in.h>
+#include <sys/types.h>
+#include <dirent.h>
 
 #include "config.h"
 #include "logging.h"
@@ -47,7 +49,9 @@ static int parse_addr(const char *text, struct in_addr *addr,
 %union {
 	int	val;
 	char	*string;
+	char 	*dir;
 }
+
 
 %token T_LOCAL_ADDR
 %token T_REMOTE_ADDR
@@ -55,9 +59,11 @@ static int parse_addr(const char *text, struct in_addr *addr,
 %token T_NUMBER
 %token T_LOG
 %token T_MODE
+%token T_RULES_DIR
 
 %token <string> T_STRING
 %token <val>	T_INTEGER
+%token <dir>	T_DIR
 
 %%
 
@@ -75,6 +81,7 @@ section		: network
 
 network		: local_addr
 		| remote_addr
+		| rules_dir
 		;
 
 local_addr	: T_LOCAL_ADDR T_STRING
@@ -97,6 +104,22 @@ remote_addr	: T_REMOTE_ADDR T_STRING
 				break;
 
 			nfts_inst.mode = NFTS_MODE_CLIENT;
+		}
+		;
+
+rules_dir	: T_RULES_DIR T_DIR
+		{
+			nfts_inst.rules_dir = (char *)NFTS_RULES_DIR_DEFAULT;
+			if (!$2)
+				break;
+
+			nfts_inst.rules_dir = $2;
+			DIR* dir = opendir(nfts_inst.rules_dir);
+			
+			if (!dir) {
+					fprintf(stderr, "Directory %s does not exists\n",nfts_inst.rules_dir);
+				 	exit(EXIT_FAILURE);
+			}
 		}
 		;
 
@@ -138,6 +161,6 @@ int nft_sync_config_parse(const char *filename)
 	yyrestart(fp);
 	yyparse();
 	fclose(fp);
-
+	
 	return 0;
 }

@@ -7,4 +7,4 @@ EXTRA_DIST = $(man_MANS) Make_global.am m4 contrib
 
 SUBDIRS   = src
 DIST_SUBDIRS = include src tests
-LIBS = @LIBMNL_LIBS@ @LIBNFTNL_LIBS@
+LIBS = @LIBMNL_LIBS@ @LIBNFTNL_LIBS@ @LIBEV_LIBS@ @LIBMXML_LIBS@ @LIBSSL_LIBS@

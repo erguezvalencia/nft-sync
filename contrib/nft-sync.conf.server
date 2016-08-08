@@ -7,8 +7,16 @@
 # Bind listener socket to this address
 local-address 127.0.0.1:1234
 
+# Connection protocol (tcp/ssl)
+protocol ssl
+
+# SSL certificates
+ca			/etc/nft-sync/ca/ca.crt
+ca-server	 	/etc/nft-sync/ca/server.crt
+ca-server-key		/etc/nft-sync/ca/private/server.key
+
 # Display logging to the standard output
 logging stdout
 
 # Local rules repository
-rules-dir /etc/nft-sync/rules/
+rules-dir 		/etc/nft-sync/rules/

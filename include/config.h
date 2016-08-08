@@ -8,6 +8,10 @@
 #include "proto.h"
 
 #include <libmnl/libmnl.h>
+enum nft_protocol {
+	NFTS_PROTOCOL_TCP = 0,
+	NFTS_PROTOCOL_SSL = 1,
+};
 
 enum nft_sync_mode {
 	NFTS_MODE_SERVER	= (1 << 0),
@@ -24,6 +28,7 @@ enum nft_sync_cmd {
 struct nft_sync_inst {
 	enum nft_sync_mode	mode;
 	enum nft_sync_cmd	cmd;
+	enum nft_protocol protocol;
 	bool			stop;
 	struct {
 		bool		color;
@@ -37,13 +42,26 @@ struct nft_sync_inst {
 	struct mnl_socket	*nl_query_sock;
 	char			*rule;
 	char			*rules_dir;
+	char			*ssl_ca;
+	char			*ssl_ca_server;
+	char			*ssl_ca_server_key;
+	char			*ssl_ca_client;
+	char			*ssl_ca_client_key;
 };
 
 extern struct nft_sync_inst nfts_inst;
 
 int nft_sync_config_parse(const char *filename);
 
+
 #define NFTS_RULES_DIR_DEFAULT	"/etc/nft-sync/rules/"
+
+#define SSL_CA 			"/etc/nft-sync/ca/ca.crt"
+#define SSL_CA_SERVER 		"/etc/nft-sync/ca/server.crt"
+#define SSL_CA_SERVER_KEY 	"/etc/nft-sync/ca/private/server.key"
+#define SSL_CA_CLIENT 		"/etc/nft-sync/ca/client.crt"
+#define SSL_CA_CLIENT_KEY 	"/etc/nft-sync/ca/private/client.key"
+
 
 
 #endif /* _NFT_CONFIG_H_ */

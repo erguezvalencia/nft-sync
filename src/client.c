@@ -25,6 +25,7 @@
 #include "mnl.h"
 #include "ruleset_parser.h"
 #include "utils.h"
+#include "ssl.h"
 
 struct mnl_nlmsg_batch *batch;
 uint32_t seq;
@@ -96,8 +97,6 @@ static void parse_payload(struct msg_buff *msgb)
 	}
 
 	json_decref(root);
-	if (array)
-		json_decref(array);
 
 	batching = nftnl_batch_is_supported();
 	if (batching < 0) {
@@ -200,13 +199,12 @@ static void tcp_client_established_cb(struct nft_fd *nfd, uint32_t mask)
 		/* Retrieve the header first to know the response length */
 		ret = tcp_client_recv(c, buf, sizeof(buf));
 		if (ret < 0) {
-			nfts_log(NFTS_LOG_ERROR, "cannot received from socket");
+			nfts_log(NFTS_LOG_ERROR, "cannot receive from socket");
 			goto err1;
 		} else if (ret == 0) {
+			nfts_log(NFTS_LOG_ERROR, "cannot find rule");
 			nfts_log(NFTS_LOG_ERROR,
-							 "cannot find rule");
-			nfts_log(NFTS_LOG_ERROR,
-				 "connection from server has been closed");
+				"connection from server has been closed");
 			/* FIXME retry every N seconds using a timer,
 			 * otherwise this sucks up the CPU by retrying to
 			 * connect very hard.
@@ -234,7 +232,7 @@ static void tcp_client_established_cb(struct nft_fd *nfd, uint32_t mask)
 	ret = tcp_client_recv(c, msgb_tail(msgb),
 			      msgb_size(msgb) - msgb_len(msgb));
 	if (ret < 0) {
-		nfts_log(NFTS_LOG_ERROR, "cannot received from socket");
+		nfts_log(NFTS_LOG_ERROR, "cannot receive from socket");
 		goto err1;
 	} else if (ret == 0) {
 		nfts_log(NFTS_LOG_ERROR,
@@ -247,9 +245,9 @@ static void tcp_client_established_cb(struct nft_fd *nfd, uint32_t mask)
 	if (msgb_len(msgb) < msgb_size(msgb))
 		return;
 
+
 	if (process_response(msgb, len) < 0) {
-		nfts_log(NFTS_LOG_ERROR,
-				"connection from server has been closed");
+		nfts_log(NFTS_LOG_ERROR, "discarding malformed response");
 		goto err1;
 	}
 	/* Detach this message from the client */
@@ -267,6 +265,86 @@ err2:
 	tcp_client_destroy(c);
 	exit(EXIT_FAILURE);
 }
+
+static void ssl_client_established_cb(struct nft_fd *nfd, uint32_t mask)
+{
+	struct ssl_client *c = nfd->data;
+	struct nft_sync_hdr *hdr;
+	char buf[sizeof(struct nft_sync_hdr)];
+	struct msg_buff *msgb = ssl_client_get_data(c);
+	int ret, len;
+
+	if (msgb == NULL) {
+		/* Retrieve the header first to know the response length */
+		ret = ssl_client_recv(c, buf, sizeof(buf));
+		if (ret < 0) {
+			nfts_log(NFTS_LOG_ERROR, "cannot receive from socket");
+			goto err1;
+		} else if (ret == 0) {
+			nfts_log(NFTS_LOG_ERROR, "cannot find rule");
+			nfts_log(NFTS_LOG_ERROR,
+				"connection from server has been closed");
+			/* FIXME retry every N seconds using a timer,
+			 * otherwise this sucks up the CPU by retrying to
+			 * connect very hard.
+			 */
+			goto err2;
+		}
+
+		hdr = (struct nft_sync_hdr *)buf;
+		len = ntohl(hdr->len);
+
+		/* Allocate a message for the entire response */
+		msgb = msgb_alloc(len);
+		if (msgb == NULL) {
+			nfts_log(NFTS_LOG_ERROR, "OOM");
+			goto err1;
+		}
+		memcpy(msgb_data(msgb), buf, sizeof(buf));
+		msgb_put(msgb, sizeof(buf));
+
+		/* Attach this message to the client */
+		ssl_client_set_data(c, msgb);
+	}
+
+	/* Retrieve as much data as we can in this round */
+	ret = ssl_client_recv(c, msgb_tail(msgb),
+			      msgb_size(msgb) - msgb_len(msgb));
+	if (ret < 0) {
+		nfts_log(NFTS_LOG_ERROR, "cannot receive from socket");
+		goto err1;
+	} else if (ret == 0) {
+		nfts_log(NFTS_LOG_ERROR,
+			 "connection from server has been closed");
+		goto err1;
+	}
+	msgb_put(msgb, ret);
+
+	/* Not enough data to process the response yet */
+	if (msgb_len(msgb) < msgb_size(msgb))
+		return;
+
+
+	if (process_response(msgb, len) < 0) {
+		nfts_log(NFTS_LOG_ERROR, "discarding malformed response");
+		goto err1;
+	}
+	/* Detach this message from the client */
+	ssl_client_set_data(c, NULL);
+err1:
+	msgb_free(msgb);
+	close(ssl_client_get_fd(c));
+	nft_fd_unregister(nfd);
+	ssl_client_destroy(c);
+	return;
+err2:
+	msgb_free(msgb);
+	close(ssl_client_get_fd(c));
+	nft_fd_unregister(nfd);
+	ssl_client_destroy(c);
+	exit(EXIT_FAILURE);
+}
+
 static void tcp_client_connect_cb(struct nft_fd *nfd, uint32_t mask)
 {
 	struct nft_sync_hdr *hdr;
@@ -326,6 +404,65 @@ static void tcp_client_connect_cb(struct nft_fd *nfd, uint32_t mask)
 	nft_fd_register(nfd, EV_READ | EV_PERSIST);
 }
 
+static void ssl_client_connect_cb(struct nft_fd *nfd, uint32_t mask)
+{
+	struct nft_sync_hdr *hdr;
+	struct ssl_client *c = nfd->data;
+	struct msg_buff *msgb;
+	int len;
+	char buf[256];
+
+	msgb = msgb_alloc(NFTS_MAX_REQUEST);
+	if (msgb == NULL) {
+		nfts_log(NFTS_LOG_ERROR, "OOM");
+		return;
+	}
+
+	switch (nfts_inst.cmd) {
+	case NFTS_CMD_FETCH:
+		len = strlen("fetch") + sizeof(struct nft_sync_hdr);
+		hdr = msgb_put(msgb, sizeof(struct nft_sync_hdr));
+		hdr->len = htonl(len);
+		memcpy(hdr->data, "fetch", strlen("fetch"));
+		msgb_put(msgb, strlen("fetch"));
+		break;
+	case NFTS_CMD_PULL:
+		if (nfts_inst.rule) {
+			len = strlen("pull") + strlen(nfts_inst.rule) + sizeof(struct nft_sync_hdr) + 1;
+			hdr = msgb_put(msgb, sizeof(struct nft_sync_hdr));
+			hdr->len = htonl(len);
+			snprintf(buf, sizeof buf, "pull;%s",nfts_inst.rule);
+			memcpy(hdr->data, buf, strlen(buf));
+			msgb_put(msgb, strlen(buf));
+		}
+		else {
+			len = strlen("pull") + sizeof(struct nft_sync_hdr);
+			hdr = msgb_put(msgb, sizeof(struct nft_sync_hdr));
+			hdr->len = htonl(len);
+			memcpy(hdr->data, "pull", strlen("pull"));
+			msgb_put(msgb, strlen("pull"));
+			break;
+		}
+		break;
+	default:
+		nfts_log(NFTS_LOG_ERROR, "Unknown command");
+		return;
+	}
+	if (ssl_client_send(c, msgb_data(msgb), msgb_len(msgb)) < 0) {
+		nfts_log(NFTS_LOG_ERROR, "cannot send to socket: %s",
+			 strerror(errno));
+		nfts_log(NFTS_LOG_ERROR, "is server using SSL?");
+		exit(EXIT_FAILURE);
+	}
+
+	/* Now that we got connected, register the descriptor again to
+	 * permanently listen for incoming data.
+	 */
+	nft_fd_setup(&nfts_inst.tcp_client_nfd, ssl_client_get_fd(c),
+		     ssl_client_established_cb, c);
+	nft_fd_register(nfd, EV_READ | EV_PERSIST);
+}
+
 int tcp_client_start(struct nft_sync_inst *inst)
 {
 	struct tcp_client *c;
@@ -338,6 +475,23 @@ int tcp_client_start(struct nft_sync_inst *inst)
 
 	nft_fd_setup(&inst->tcp_client_nfd, tcp_client_get_fd(c),
 		     tcp_client_connect_cb, c);
+	nft_fd_register(&inst->tcp_client_nfd, EV_WRITE);
+
+	return 0;
+}
+
+int ssl_client_start(struct nft_sync_inst *inst)
+{
+	struct ssl_client *c;
+
+	c = ssl_client_create((struct ssl_conf *)&inst->tcp);
+	if (c == NULL) {
+		fprintf(stderr, "cannot initialize SSL client");
+		return -1;
+	}
+
+	nft_fd_setup(&inst->tcp_client_nfd, ssl_client_get_fd(c),
+		     ssl_client_connect_cb, c);
 	nft_fd_register(&inst->tcp_client_nfd, EV_WRITE);
 
 	return 0;

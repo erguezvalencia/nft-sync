@@ -12,6 +12,7 @@ enum nft_sync_logging_prio {
 	NFTS_LOG_NOTICE,
 	NFTS_LOG_ERROR,
 	NFTS_LOG_FATAL,
+	NFTS_LOG_SSL,
 	NFTS_LOG_MAX
 };
 

@@ -32,6 +32,12 @@ dir			[a-zA-Z0-9\.\-\_\/\:]*
 "rules-dir"		{ return T_RULES_DIR; }
 "logging"		{ return T_LOG; }
 "mode"			{ return T_MODE; }
+"protocol"		{ return T_PROTOCOL; }
+"ca"			{ return T_SSL_CA; }
+"ca-server"		{ return T_SSL_CA_SERVER; }
+"ca-server-key"	{ return T_SSL_CA_SERVER_KEY; }
+"ca-client"		{ return T_SSL_CA_CLIENT; }
+"ca-client-key"	{ return T_SSL_CA_CLIENT_KEY; }
 
 {integer}		{ yylval.val = atoi(yytext); return T_INTEGER; }
 {string}		{ yylval.string = strdup(yytext); return T_STRING; }

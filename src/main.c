@@ -45,14 +45,14 @@ static void print_usage(const char *prog_name)
 }
 
 static const struct option options[] = {
-	{ .name = "help",	.has_arg = false,				.val = 'h' },
+	{ .name = "help",	.has_arg = false,		.val = 'h' },
 	{ .name = "config",	.has_arg = required_argument,	.val = 'c' },
 	{ .name = "fetch",	.has_arg = optional_argument,	.val = 'f' },
 	{ .name = "pull",	.has_arg = optional_argument,	.val = 'p' },
 	{ NULL },
 };
 
-#define NFT_SYNC_CONF_DEFAULT	"/etc/nft-sync.conf"
+#define NFT_SYNC_CONF_DEFAULT	"/etc/nft-sync/nft-sync.conf"
 
 static int set_cmd(int cmd)
 {
@@ -83,6 +83,12 @@ int main(int argc, char *argv[])
 	char *rule = NULL;
 
 	nfts_inst.rules_dir = (void *)NFTS_RULES_DIR_DEFAULT;
+	nfts_inst.ssl_ca = (void *)SSL_CA;
+	nfts_inst.ssl_ca_server = (void *)SSL_CA_SERVER;
+	nfts_inst.ssl_ca_server_key = (void *)SSL_CA_SERVER_KEY;
+	nfts_inst.ssl_ca_client = (void *)SSL_CA_CLIENT;
+	nfts_inst.ssl_ca_client_key = (void *)SSL_CA_CLIENT_KEY;
+
 	while ((c = getopt_long(argc, argv, "hc:f:p:", options, NULL)) != -1) {
 		switch (c) {
 		case 'h':
@@ -110,6 +116,7 @@ int main(int argc, char *argv[])
 	if (nft_sync_config_parse(config) < 0)
 		return EXIT_FAILURE;
 
+
 	if (nft_sync_event_init() < 0) {
 		fprintf(stderr, "Cannot start libev: %s\n", strerror(errno));
 		goto err;
@@ -121,36 +128,63 @@ int main(int argc, char *argv[])
 	}
 
 	if (nfts_inst.mode & NFTS_MODE_SERVER) {
-		if (tcp_server_start(&nfts_inst) < 0) {
-			nfts_log(NFTS_LOG_FATAL,
-				 "Cannot start TCP server: %s\n",
-				 strerror(errno));
-			goto err;
-		}
+		if (nfts_inst.protocol & NFTS_PROTOCOL_SSL) {
+			if (ssl_server_start(&nfts_inst) < 0) {
+				nfts_log(NFTS_LOG_FATAL,
+					"Cannot start SSL server: %s\n",
+					strerror(errno));
+			}
 
-		if (nfts_socket_open(&nfts_inst) < 0) {
-			nfts_log(NFTS_LOG_FATAL,
-				 "Cannot open Netlink query socket: %s\n",
-				 strerror(errno));
-			goto err;
+			if (nfts_socket_open(&nfts_inst) < 0) {
+				nfts_log(NFTS_LOG_INFO,
+					"Cannot open Netlink query socket: %s\n",
+					strerror(errno));
+			}
+			nfts_log(NFTS_LOG_INFO, "using SSL connection");
+		}
+		else {
+			if (tcp_server_start(&nfts_inst) < 0) {
+				nfts_log(NFTS_LOG_FATAL,
+					"Cannot start TCP server: %s\n",
+					strerror(errno));
+				goto err;
+			}
+
+			if (nfts_socket_open(&nfts_inst) < 0) {
+				nfts_log(NFTS_LOG_FATAL,
+					"Cannot open Netlink query socket: %s\n",
+					strerror(errno));
+				goto err;
+			}
 		}
 
 		nfts_log(NFTS_LOG_INFO, "listening at %s",
-			 inet_ntoa(nfts_inst.tcp.server.ipv4.inet_addr));
+			inet_ntoa(nfts_inst.tcp.server.ipv4.inet_addr));
 	}
 
 	if (nfts_inst.mode & NFTS_MODE_CLIENT) {
 		if (!nfts_inst.cmd) {
 			nfts_log(NFTS_LOG_FATAL,
-				 "Client needs some command, eg. --fetch",
-				 strerror(errno));
+				"Client needs some command, eg. --fetch",
+				strerror(errno));
 			goto err;
 		}
-		if (tcp_client_start(&nfts_inst) < 0) {
-			nfts_log(NFTS_LOG_FATAL,
-				 "Cannot start TCP client: %s",
-				 strerror(errno));
-			goto err;
+		if (nfts_inst.protocol & NFTS_PROTOCOL_SSL) {
+			if (ssl_client_start(&nfts_inst) < 0) {
+				nfts_log(NFTS_LOG_FATAL,
+					"Cannot start SSL client: %s",
+					strerror(errno));
+					goto err;
+			}
+			nfts_log(NFTS_LOG_INFO, "using SSL connection");
+		}
+		else {
+			if (tcp_client_start(&nfts_inst) < 0) {
+				nfts_log(NFTS_LOG_FATAL,
+					"Cannot start TCP client: %s",
+					strerror(errno));
+				goto err;
+			}
 		}
 		nfts_log(NFTS_LOG_INFO, "connecting to %s",
 			 inet_ntoa(nfts_inst.tcp.client.inet_addr));

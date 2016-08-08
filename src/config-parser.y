@@ -60,6 +60,12 @@ static int parse_addr(const char *text, struct in_addr *addr,
 %token T_LOG
 %token T_MODE
 %token T_RULES_DIR
+%token T_PROTOCOL
+%token T_SSL_CA
+%token T_SSL_CA_SERVER
+%token T_SSL_CA_SERVER_KEY
+%token T_SSL_CA_CLIENT
+%token T_SSL_CA_CLIENT_KEY
 
 %token <string> T_STRING
 %token <val>	T_INTEGER
@@ -81,8 +87,15 @@ section		: network
 
 network		: local_addr
 		| remote_addr
+		| protocol
+		| ca
+		| ca_server
+		| ca_server_key
+		| ca_client
+		| ca_client_key
 		| rules_dir
 		;
+		
 
 local_addr	: T_LOCAL_ADDR T_STRING
 		{
@@ -106,6 +119,68 @@ remote_addr	: T_REMOTE_ADDR T_STRING
 			nfts_inst.mode = NFTS_MODE_CLIENT;
 		}
 		;
+		
+protocol : T_PROTOCOL T_STRING
+		{
+			if (strcmp($2, "ssl") == 0) {
+				nfts_inst.protocol = NFTS_PROTOCOL_SSL;
+				break;
+			}
+			nfts_inst.protocol = NFTS_PROTOCOL_TCP;
+		}
+		;
+	
+ca : T_SSL_CA T_DIR
+	{
+		nfts_inst.ssl_ca = (char *)SSL_CA;
+		if (!$2)
+			break;
+
+		nfts_inst.ssl_ca = $2;
+	}
+	;
+		
+ca_server : T_SSL_CA_SERVER T_DIR
+		{
+			nfts_inst.ssl_ca_server = (char *)SSL_CA_SERVER;
+			if (!$2)
+				break;
+
+			nfts_inst.ssl_ca_server = $2;
+		}
+		;
+
+ca_server_key : T_SSL_CA_SERVER_KEY T_DIR
+		{
+			nfts_inst.ssl_ca_server_key = (char *)SSL_CA_SERVER_KEY;
+			if (!$2)
+				break;
+
+			nfts_inst.ssl_ca_server_key = $2;
+		}
+		;
+
+
+ca_client : T_SSL_CA_CLIENT T_DIR
+		{
+			nfts_inst.ssl_ca_client = (char *)SSL_CA_CLIENT;
+			if (!$2)
+				break;
+
+			nfts_inst.ssl_ca_client = $2;
+		}
+		;
+
+ca_client_key : T_SSL_CA_CLIENT_KEY T_DIR
+		{
+			nfts_inst.ssl_ca_client_key = (char *)SSL_CA_CLIENT_KEY;
+			if (!$2)
+				break;
+
+			nfts_inst.ssl_ca_client_key = $2;
+		}
+		;
+
 
 rules_dir	: T_RULES_DIR T_DIR
 		{
@@ -161,6 +236,6 @@ int nft_sync_config_parse(const char *filename)
 	yyrestart(fp);
 	yyparse();
 	fclose(fp);
-	
+
 	return 0;
 }

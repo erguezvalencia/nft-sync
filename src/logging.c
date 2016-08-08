@@ -40,6 +40,10 @@ static struct {
 		.text	= "FATAL",
 		.color	= "\033[1;31m",
 	},
+		[NFTS_LOG_SSL] = {
+		.text	= "SSL",
+		.color	= "\033[1;33m",
+	},
 };
 
 int nft_sync_log_init(struct nft_sync_inst *inst)

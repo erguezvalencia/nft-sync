@@ -20,8 +20,9 @@ nft_sync_SOURCES = event.c		\
 		   utils.c		\
 		   fd.c			\
 		   config-parser.y	\
+		   ssl.c		\
 		   config-scanner.l
-nft_sync_LDADD = ${LIBMNL_LIBS} ${LIBNFTNL_LIBS} -lev -lmxml -ljansson
+nft_sync_LDADD = ${LIBMNL_LIBS} ${LIBNFTNL_LIBS} -lev -ljansson -lssl -lcrypto
 
 # yacc and lex generate dirty code
 config-scanner.o config-parser.o: AM_CFLAGS += -Wno-missing-prototypes -Wno-missing-declarations -Wno-implicit-function-declaration -Wno-nested-externs -Wno-undef -Wno-redundant-decls

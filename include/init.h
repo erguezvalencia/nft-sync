@@ -9,5 +9,7 @@ struct nft_sync_inst;
 
 int tcp_server_start(struct nft_sync_inst *);
 int tcp_client_start(struct nft_sync_inst *inst);
+int ssl_server_start(struct nft_sync_inst *);
+int ssl_client_start(struct nft_sync_inst *inst);
 
 #endif

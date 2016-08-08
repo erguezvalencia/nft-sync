@@ -10,5 +10,6 @@ noinst_HEADERS =	config.h	\
 			mnl.h		\
 			utils.h		\
 			tcp.h		\
+			ssl.h		\
 			timer.h
 

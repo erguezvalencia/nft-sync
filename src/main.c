@@ -52,8 +52,6 @@ static const struct option options[] = {
 	{ NULL },
 };
 
-#define NFT_SYNC_CONF_DEFAULT	"/etc/nft-sync/nft-sync.conf"
-
 static int set_cmd(int cmd)
 {
 	if (nfts_inst.cmd) {

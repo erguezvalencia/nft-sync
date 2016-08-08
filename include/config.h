@@ -53,7 +53,7 @@ extern struct nft_sync_inst nfts_inst;
 
 int nft_sync_config_parse(const char *filename);
 
-
+#define NFT_SYNC_CONF_DEFAULT	"/etc/nft-sync/nft-sync.conf"
 #define NFTS_RULES_DIR_DEFAULT	"/etc/nft-sync/rules/"
 
 #define SSL_CA 			"/etc/nft-sync/ca/ca.crt"

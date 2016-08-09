@@ -195,6 +195,7 @@ rules_dir	: T_RULES_DIR T_DIR
 					fprintf(stderr, "Directory %s does not exists\n",nfts_inst.rules_dir);
 				 	exit(EXIT_FAILURE);
 			}
+			xfree(dir);
 		}
 		;
 

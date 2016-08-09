@@ -118,16 +118,19 @@ static int send_ruleset(struct nft_fd *nfd, enum nft_protocol type)
 
 static int nfts_parse_request(struct nft_fd *nfd, const char *req, enum nft_protocol type)
 {
-	int ret = -1;
-	char cmd[256];
-	char *rule;
+	char *cmd = NULL;
+	char *rule = NULL;
 	const char *separator = ";";
+	int ret = -1;
 
-	strncpy(cmd,req,sizeof(cmd)-1);
-	if (strncmp(req, "fetch", strlen("fetch")) == 0)
+
+	cmd = malloc(sizeof(char *)*(strlen(req)));
+	sprintf(cmd,"%s",req);
+	if (strncmp(cmd, "fetch", strlen("fetch")) == 0) {
 		ret = send_ruleset(nfd, type);
-	if (strncmp(req, "pull", strlen("pull")) == 0) {
-		if(strstr(req, ";") != NULL) {
+	}
+	if (strncmp(cmd, "pull", strlen("pull")) == 0) {
+		if(strstr(cmd, ";") != NULL) {
 			rule = strtok(cmd, separator);
 			rule = strtok(NULL, "");
 			ret = send_ruleset_offline(nfd,rule,type);
@@ -136,7 +139,7 @@ static int nfts_parse_request(struct nft_fd *nfd, const char *req, enum nft_prot
 			ret = send_ruleset(nfd, type);
 		}
 	}
-
+	xfree(cmd);
 	return ret;
 }
 

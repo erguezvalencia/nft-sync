@@ -121,9 +121,10 @@ static int nfts_parse_request(struct nft_fd *nfd, const char *req, enum nft_prot
 	char *cmd = NULL;
 	char *rule = NULL;
 	const char *separator = ";";
-	int ret = -1;
 
+	int ret = ret; /* avoids incorrect "may be used uninitialized in this function" warning while using gcc optimizations */
 
+	ret = -1;
 	cmd = malloc(sizeof(char *)*(strlen(req)));
 	sprintf(cmd,"%s",req);
 	if (strncmp(cmd, "fetch", strlen("fetch")) == 0) {
@@ -140,6 +141,7 @@ static int nfts_parse_request(struct nft_fd *nfd, const char *req, enum nft_prot
 		}
 	}
 	xfree(cmd);
+
 	return ret;
 }
 

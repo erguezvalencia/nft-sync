@@ -26,7 +26,7 @@ struct msg_buff *msgb_alloc(uint32_t size)
 {
 	struct msg_buff *msgb;
 
-	msgb = malloc(sizeof(struct msg_buff) + size);
+	msgb = calloc(sizeof(struct msg_buff) + size, 1);
 	if (msgb == NULL)
 		return NULL;
 

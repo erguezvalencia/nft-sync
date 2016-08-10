@@ -345,9 +345,6 @@ int tcp_server_start(struct nft_sync_inst *inst)
 {
 	struct tcp_server *s;
 
-	nfts_inst.tcp.ipproto = AF_INET;
-	nfts_inst.tcp.port = 1234;
-
 	s = tcp_server_create(&inst->tcp);
 	if (s == NULL)
 		return -1;
@@ -361,9 +358,6 @@ int tcp_server_start(struct nft_sync_inst *inst)
 
 int ssl_server_start(struct nft_sync_inst *inst)
 {
-	nfts_inst.tcp.ipproto = AF_INET;
-	nfts_inst.tcp.port = 1234;
-
 	sserver = ssl_server_create((struct ssl_conf *)&inst->tcp);
 	if (sserver == NULL)
 		return -1;

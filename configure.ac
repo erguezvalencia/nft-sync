@@ -55,26 +55,17 @@ fi
 
 PKG_CHECK_MODULES([LIBMNL], [libmnl >= 1.0.3])
 PKG_CHECK_MODULES([LIBNFTNL], [libnftnl >= 1.0.0])
+PKG_CHECK_MODULES([LIBJSON], [jansson >= 2.3])
+PKG_CHECK_MODULES([LIBCRYPTO], [libcrypto >= 1.0.1])
+PKG_CHECK_MODULES([LIBSSL], [libssl >= 1.0])
+PKG_CHECK_MODULES([LIBXML], [mxml >= 2.6])
+
 AC_CHECK_HEADER([ev.h],
-		AC_CHECK_LIB([ev], [ev_loop_new], [BUILD_LIBEV=$WITH_LIBEV],
-		[test x$WITH_LIBEV != xauto && AC_MSG_ERROR("libev not found")]),
-		[test x$WITH_LIBEV != xauto && AC_MSG_ERROR("ev.h not found")])
+		[AC_SUBST(LIBEV_LIBS, ["-lev"])],
+		[AC_MSG_ERROR("ev.h not found")])
 AC_CHECK_HEADER([event.h],
-		[BUILD_LIBEV=$WITH_LIBEVENT],
-		[test x$WITH_LIBEVENT != xauto && AC_MSG_ERROR("libev-libevent-dev not found")])
-
-AC_CHECK_HEADER([mxml.h],
-		[BUILD_LIBMXML=$WITH_LIBMXML],
-		[test x$WITH_LIBMXML != xauto && AC_MSG_ERROR("libmxml-dev not found")])
-
-AC_CHECK_HEADER([openssl/ssl.h],
-		[BUILD_LIBSSL=$WITH_LIBSSL],
-		[test x$WITH_LIBSSL != xauto && AC_MSG_ERROR("libssl-dev not found")])
-
-AC_CHECK_HEADER([openssl/err.h],
-		[BUILD_LIBSSL=$WITH_LIBSSL],
-		[test x$WITH_LIBSSL != xauto && AC_MSG_ERROR("libssl-dev not found")])
-
+		[],
+		[AC_MSG_ERROR("libev-libevent-dev not found")])
 
 AC_CHECK_HEADERS(arpa/inet.h)
 dnl check for inet_pton

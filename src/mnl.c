@@ -14,6 +14,7 @@
 
 #include <errno.h>
 #include <stdlib.h>
+#include <string.h>
 
 #include "mnl.h"
 #include "linux/netfilter/nf_tables.h"
@@ -222,6 +223,7 @@ mnl_set_dump(struct mnl_socket *nf_sock, int family, const char *table)
 	struct nft_set_list *nls_list;
 	int ret;
 
+	memset(buf, 0, MNL_SOCKET_BUFFER_SIZE);
 	s = nft_set_alloc();
 	if (s == NULL)
 		return NULL;

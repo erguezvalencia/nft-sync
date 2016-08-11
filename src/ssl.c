@@ -81,33 +81,20 @@ static int ssl_client_init(struct ssl_client *c, struct ssl_conf *conf)
 	init_openssl();
 
 
-	if (access( nfts_inst.ssl_ca, F_OK ) == -1) {
-		nfts_log(NFTS_LOG_SSL,"%s does not exists", nfts_inst.ssl_ca);
-		exit(EXIT_FAILURE);
-	}
-	if (access( nfts_inst.ssl_ca_client, F_OK ) == -1) {
-		nfts_log(NFTS_LOG_SSL,"%s does not exists", nfts_inst.ssl_ca_client);
-		exit(EXIT_FAILURE);
-	}
-	if (access( nfts_inst.ssl_ca_client_key, F_OK ) == -1) {
-		nfts_log(NFTS_LOG_SSL,"%s does not exists", nfts_inst.ssl_ca_client_key);
-		exit(EXIT_FAILURE);
-	}
-
 	if ((c->ctx = SSL_CTX_new(TLSv1_2_client_method())) == NULL) {
 		nfts_log(NFTS_LOG_SSL,"error creating SSL context");
 		exit(EXIT_FAILURE);
 	}
 	if (!SSL_CTX_load_verify_locations(c->ctx, nfts_inst.ssl_ca, NULL)) {
-		nfts_log(NFTS_LOG_SSL,"verification problem: %s" , nfts_inst.ssl_ca);
+		nfts_log(NFTS_LOG_SSL,"CA %s does not exist or incorrect" , nfts_inst.ssl_ca);
 		exit(EXIT_FAILURE);
 	}
 	if (!SSL_CTX_use_certificate_file(c->ctx, nfts_inst.ssl_ca_client, SSL_FILETYPE_PEM)) {
-		nfts_log(NFTS_LOG_SSL,"problem loading client cert: %s" ,nfts_inst.ssl_ca_client);
+		nfts_log(NFTS_LOG_SSL,"client certificate %s does not exists or incorrect" ,nfts_inst.ssl_ca_client);
 		exit(EXIT_FAILURE);
 	}
 	if (!SSL_CTX_use_PrivateKey_file(c->ctx, nfts_inst.ssl_ca_client_key, SSL_FILETYPE_PEM)) {
-		nfts_log(NFTS_LOG_SSL,"problem loading client key: %s" , nfts_inst.ssl_ca_client_key);
+		nfts_log(NFTS_LOG_SSL,"client key %s does not exists or incorrect" , nfts_inst.ssl_ca_client_key);
 		exit(EXIT_FAILURE);
 	}
 	if (!SSL_CTX_check_private_key(c->ctx)) {
@@ -160,29 +147,30 @@ struct ssl_server *ssl_server_create(struct ssl_conf *conf)
 	if (c == NULL)
 		return NULL;
 
-	if (access( nfts_inst.ssl_ca, F_OK ) == -1) {
-		nfts_log(NFTS_LOG_SSL,"%s does not exists", nfts_inst.ssl_ca);
-		exit(EXIT_FAILURE);
-	}
-	if (access( nfts_inst.ssl_ca_server, F_OK ) == -1) {
-		nfts_log(NFTS_LOG_SSL,"%s does not exists", nfts_inst.ssl_ca_server);
-		exit(EXIT_FAILURE);
-	}
-	if (access( nfts_inst.ssl_ca_server_key, F_OK ) == -1) {
-		nfts_log(NFTS_LOG_SSL,"%s does not exists", nfts_inst.ssl_ca_server_key);
+	if ((c->ctx = SSL_CTX_new(TLSv1_2_server_method())) == NULL){
+		nfts_log(NFTS_LOG_SSL,"error creating SSL context");
 		exit(EXIT_FAILURE);
 	}
 
-	if ((c->ctx = SSL_CTX_new(TLSv1_2_server_method())) == NULL)
-		nfts_log(NFTS_LOG_FATAL,"c->ctx");
-	if (!SSL_CTX_load_verify_locations(c->ctx, nfts_inst.ssl_ca, NULL))
-		nfts_log(NFTS_LOG_FATAL,"Verify");
-	if (!SSL_CTX_use_certificate_file(c->ctx, nfts_inst.ssl_ca_server, SSL_FILETYPE_PEM))
-		nfts_log(NFTS_LOG_FATAL,"cert");
-	if (!SSL_CTX_use_PrivateKey_file(c->ctx, nfts_inst.ssl_ca_server_key, SSL_FILETYPE_PEM))
-		nfts_log(NFTS_LOG_FATAL,"key");
-	if (!SSL_CTX_check_private_key(c->ctx))
-		nfts_log(NFTS_LOG_FATAL,"cert/key");
+	if (!SSL_CTX_load_verify_locations(c->ctx, nfts_inst.ssl_ca, NULL)){
+		nfts_log(NFTS_LOG_SSL,"CA %s does not exist or incorrect" , nfts_inst.ssl_ca);
+		exit(EXIT_FAILURE);
+	}
+
+	if (!SSL_CTX_use_certificate_file(c->ctx, nfts_inst.ssl_ca_server, SSL_FILETYPE_PEM)){
+		nfts_log(NFTS_LOG_SSL,"server certificate %s does not exists or incorrect" ,nfts_inst.ssl_ca_server);
+		exit(EXIT_FAILURE);
+	}
+
+	if (!SSL_CTX_use_PrivateKey_file(c->ctx, nfts_inst.ssl_ca_server_key, SSL_FILETYPE_PEM)){
+		nfts_log(NFTS_LOG_SSL,"server key %s does not exists or incorrect" , nfts_inst.ssl_ca_server_key);
+		exit(EXIT_FAILURE);
+	}
+	if (!SSL_CTX_check_private_key(c->ctx)){
+		nfts_log(NFTS_LOG_SSL,"problem checking cert/key");
+		exit(EXIT_FAILURE);
+	}
+
 	SSL_CTX_set_mode(c->ctx, SSL_MODE_AUTO_RETRY);
 	SSL_CTX_set_verify(c->ctx, SSL_VERIFY_PEER | SSL_VERIFY_FAIL_IF_NO_PEER_CERT, NULL);
 	SSL_CTX_set_verify_depth(c->ctx, 1);

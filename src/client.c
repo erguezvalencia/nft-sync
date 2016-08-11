@@ -49,6 +49,7 @@ static void parse_payload(struct msg_buff *msgb)
 	json_t *json_arr = json_array();
 	json_error_t error;
 
+	memset(buf, 0, MNL_SOCKET_BUFFER_SIZE);
 	nfts_log(NFTS_LOG_INFO, "applying ruleset");
 	data = malloc(msgb_len(msgb)+sizeof(struct nft_sync_hdr));
 	if (data == NULL){

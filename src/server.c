@@ -53,7 +53,7 @@ static int send_ruleset_offline(struct nft_fd *nfd, char *rule, enum nft_protoco
 	}
 	fseek(fp, 0, SEEK_END);
 	fsize = ftell(fp);
-	ruleset=malloc(sizeof(char) * (fsize));
+	ruleset=malloc(sizeof(char) * (fsize) + sizeof(struct nft_sync_hdr));
 	fseek(fp, 0, SEEK_SET);
 	fread(ruleset,fsize,1,fp);
 	ruleset[strcspn(ruleset, "\n")] = '\0';
@@ -79,6 +79,7 @@ static int send_ruleset_offline(struct nft_fd *nfd, char *rule, enum nft_protoco
 			ret = SSL_write (sserver->ssl, msgb_data(msgb), msgb_len(msgb));
 	msgb_free(msgb);
 
+	xfree(ruleset);
 	return ret;
 }
 
